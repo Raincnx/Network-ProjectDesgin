@@ -1,4 +1,6 @@
-package client;
+package client.entry;
+
+import client.Client;
 
 import java.io.*;
 
