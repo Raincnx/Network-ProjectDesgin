@@ -132,8 +132,8 @@ public class Server {
                 }
             }
         }
-        private void sendAudio(String audioname,ByteArrayOutputStream output) throws IOException {
-            out.println("Audio:"+audioname+":"+output.size());
+        private void sendAudio(String audioname, ByteArrayOutputStream output) throws IOException {
+            out.println("Audio:" + audioname + ":"+output.size());
             out.flush();
 
             OutputStream outputStream = clientSocket.getOutputStream();
@@ -142,7 +142,7 @@ public class Server {
 
             System.out.println("over transfer");
         }
-        private void receiveFile(String fileName,long filesize) {
+        private void receiveFile(String fileName, long filesize) {
             try {
                 // 创建文件输出流
                 File receivedFile = new File(fileName);
@@ -154,24 +154,21 @@ public class Server {
 
                 byte[] buffer = new byte[1460];
                 int bytesRead;
-                //int flag=0;
-                byte specialSymbol = '$';
-                byte[] endMarker = new byte[1460];
-                Arrays.fill(endMarker, (byte) specialSymbol);
-                while (true) {
-                    bytesRead = inputStream.read(buffer);
+                long remaining = filesize;
+
+                while (remaining > 0) {
+                    bytesRead = Math.min(1460, (int) remaining);
                     bos.write(buffer, 0, bytesRead);
-                    bos.flush();
-                    //System.out.println(filesize);
-                    filesize-=bytesRead;
-                    if(filesize<=0) break;
+                    remaining -= bytesRead;
+                    System.out.println("Received " + bytesRead + " bytes, remaining: " + remaining + " bytes");
                 }
+
                 // 关闭流
                 bos.close();
                 fos.close();
 
                 // 在服务端显示文件接收信息
-                System.out.println("File received: " + fileName+" " +receivedFile.length());
+                System.out.println("File received: " + fileName + " (" + receivedFile.length() + " bytes)");
 
                 // 转发文件给其他客户端
                 broadcastFile(receivedFile);
@@ -179,9 +176,11 @@ public class Server {
                 e.printStackTrace();
             }
         }
+
         private void broadcastFile(File file) {
             try {
                 // 读取文件内容
+                System.out.println(file.getName());
                 byte[] buffer = new byte[(int) file.length()];
                 FileInputStream fis = new FileInputStream(file);
                 BufferedInputStream bis = new BufferedInputStream(fis);
@@ -203,6 +202,7 @@ public class Server {
         }
         public void sendFile(String fileName, byte[] fileData) {
             try {
+                System.out.println("Are You Ready??");
                 // 发送文件名
                 out.println("File:" + fileName+":"+fileData.length);
                 out.flush();
@@ -231,14 +231,15 @@ public class Server {
         }
         private boolean authenticateUser(String username, String password) {
             // 在实际情况下，你需要在这里编写验证用户信息的逻辑
-            // 这里只是一个简单的示例，始终返回true，表示认证成功
+            // 这里只是一个简单的示例，始终返回true，
+
             if(Objects.equals(username, "user1") && Objects.equals(password, "123456")){
                     return true;
             }
             if(Objects.equals(username, "user2") && Objects.equals(password, "123")){
                 return true;
             }
-            return false;
+           return false;
             //return true;
         }
         private void sendMessage(String message) {

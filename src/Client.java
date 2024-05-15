@@ -5,6 +5,8 @@ import java.awt.event.*;
 import java.io.*;
 import java.net.Socket;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 public class Client {
     private Socket socket;
@@ -23,6 +25,8 @@ public class Client {
     private boolean isBegin;
     private boolean isRecording;
     private JButton uploadButton;
+
+    private Map<String, File> receivedFiles = new HashMap<>();
     public Client(String ip, int port) throws IOException {
         connectToServer(ip, port);
     }
@@ -87,12 +91,12 @@ public class Client {
 
     }
     private void createAndShowGUI() {
-        JFrame frame = new JFrame("Client");
+        frame = new JFrame("Client");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(400, 300);
-        audiocount=0;
-        isLoading=false;
-        isBegin=true;
+        frame.setSize(600, 400); // 增加窗口大小以容纳文件列表
+        audiocount = 0;
+        isLoading = false;
+        isBegin = true;
         messageArea = new JTextArea();
         messageArea.setEditable(false);
         JScrollPane scrollPane = new JScrollPane(messageArea);
@@ -101,6 +105,7 @@ public class Client {
         // 将消息显示区域放置在滚动窗格中
         scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
         JPanel inputPanel = new JPanel(new BorderLayout());
+
         // 创建语音输入按钮
         JButton voiceButton = new JButton("Voice");
         voiceButton.addActionListener(new ActionListener() {
@@ -124,7 +129,7 @@ public class Client {
         });
         inputPanel.add(voiceButton, BorderLayout.WEST);
 
-        JTextField inputField = new JTextField();
+        inputField = new JTextField();
         inputField.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 String message = inputField.getText();
@@ -141,7 +146,7 @@ public class Client {
         uploadButton = new JButton("Upload File");
         uploadButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
-                if(isBegin) {
+                if (isBegin) {
                     JFileChooser fileChooser = new JFileChooser();
                     int result = fileChooser.showOpenDialog(frame);
                     if (result == JFileChooser.APPROVE_OPTION) {
@@ -154,11 +159,11 @@ public class Client {
                             sendFile(selectedFile);
                         }).start();
                     }
-                }else {
-                    if(isLoading) {
+                } else {
+                    if (isLoading) {
                         uploadButton.setText("Continue");
                         isLoading = false;
-                    }else{
+                    } else {
                         uploadButton.setText("Stop");
                         isLoading = true;
                     }
@@ -168,6 +173,27 @@ public class Client {
 
         inputPanel.add(uploadButton, BorderLayout.EAST);
         frame.add(inputPanel, BorderLayout.SOUTH);
+
+        // 创建文件列表
+        JPanel filePanel = new JPanel(new BorderLayout());
+        JLabel fileLabel = new JLabel("Received Files:");
+        JList<String> fileList = new JList<>(new DefaultListModel<>());
+        fileList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) { // 双击下载文件
+                    String fileName = fileList.getSelectedValue();
+                    if (fileName != null) {
+                        downloadFile(fileName);
+                    }
+                }
+            }
+        });
+
+        filePanel.add(fileLabel, BorderLayout.NORTH);
+        filePanel.add(new JScrollPane(fileList), BorderLayout.CENTER);
+        frame.add(filePanel, BorderLayout.EAST);
+
         frame.setVisible(true);
 
         // 开启一个单独的线程读取服务器消息并更新图形界面
@@ -175,7 +201,7 @@ public class Client {
             try {
                 String message;
                 while ((message = in.readLine()) != null) {
-                    receiveMessage(message);
+                    receiveMessage(message, fileList);
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -238,7 +264,7 @@ public class Client {
         System.out.println("Stop recording and send...");
         isRecording = false;
     }
-    private void receiveMessage(String message) {
+    private void receiveMessage(String message, JList<String> fileList) {
         try {
             System.out.println(message);
             if (message.startsWith("Text:")) {
@@ -253,7 +279,7 @@ public class Client {
                 String fileName = parts[1];
                 long fileSize = Long.parseLong(parts[2]);
                 //String fileName = message.substring(5);
-                receiveFile(fileName,fileSize);
+                receiveFile(fileName, fileSize, fileList);
             } else if(message.startsWith("Audio:")) {
                 String[] parts = message.split(":");
                 String audioname = parts[1];
@@ -320,7 +346,7 @@ public class Client {
             bis.read(buffer, 0, buffer.length);
 
             // 发送文件名
-            out.println("File:" + file.getName()+":"+file.length());
+            out.println("File:" + file.getName() + ":"+file.length());
             out.flush();
 
             int p=0;
@@ -367,44 +393,66 @@ public class Client {
             throw new RuntimeException(e);
         }
     }
-    private void receiveFile(String fileName,long filesize) {
+    private void receiveFile(String fileName, long filesize, JList<String> fileList) {
         try {
             // 创建文件输出流
             File receivedFile = new File(fileName);
             FileOutputStream fos = new FileOutputStream(receivedFile);
             BufferedOutputStream bos = new BufferedOutputStream(fos);
-
+            System.out.println("I want to receive File");
             // 从输入流中读取文件内容
             InputStream inputStream = socket.getInputStream();
             byte[] buffer = new byte[1460];
             int bytesRead;
 
-
-            while (true) {
-                bytesRead = inputStream.read(buffer);
-
+            while (filesize > 0 && (bytesRead = inputStream.read(buffer, 0, (int) Math.min(buffer.length, filesize))) != -1) {
                 bos.write(buffer, 0, bytesRead);
                 bos.flush();
-                filesize-=bytesRead;
-                if(filesize<=0) break;
+                filesize -= bytesRead;
             }
             bos.flush();
             // 关闭流
             bos.close();
             fos.close();
 
-            String filePath = receivedFile.getAbsolutePath();
-
             // 在图形界面中显示文件接收信息
             SwingUtilities.invokeLater(() -> {
-                messageArea.append("File received: " + fileName +"\n");
-                messageArea.append("File saved to :" + filePath + "\n\n");
+                messageArea.append("File received: " + fileName + "\n");
+                messageArea.append("File saved to: " + receivedFile.getAbsolutePath() + "\n\n");
+
+                // 将文件添加到文件列表中
+                DefaultListModel<String> model = (DefaultListModel<String>) fileList.getModel();
+                model.addElement(fileName);
+                receivedFiles.put(fileName, receivedFile);
             });
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
+    private void downloadFile(String fileName) {
+        File file = receivedFiles.get(fileName);
+        if (file != null) {
+            JFileChooser fileChooser = new JFileChooser();
+            fileChooser.setSelectedFile(new File(file.getName()));
+            int result = fileChooser.showSaveDialog(frame);
+            if (result == JFileChooser.APPROVE_OPTION) {
+                File saveFile = fileChooser.getSelectedFile();
+                try (InputStream in = new FileInputStream(file);
+                     OutputStream out = new FileOutputStream(saveFile)) {
+                    byte[] buffer = new byte[1024];
+                    int bytesRead;
+                    while ((bytesRead = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, bytesRead);
+                    }
+                    JOptionPane.showMessageDialog(frame, "File downloaded to: " + saveFile.getAbsolutePath());
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    JOptionPane.showMessageDialog(frame, "Error downloading file: " + e.getMessage());
+                }
+            }
+        }
+    }
     public void stopConnection() throws IOException {
         in.close();
         out.close();
