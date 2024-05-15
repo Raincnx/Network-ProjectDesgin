@@ -8,5 +8,3 @@ public class Client2 {
         client = new Client("localhost", 3389);
     }
 }
-
-

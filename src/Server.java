@@ -1,13 +1,11 @@
 import java.io.*;
 import java.net.*;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
+import java.util.stream.Collectors;
 
 public class Server {
     private ServerSocket serverSocket;
-    private List<ClientHandler> clients = new ArrayList<>();
+    private Map<String, ClientHandler> clients = new HashMap<>();
 
     public void start(int port) throws IOException {
         serverSocket = new ServerSocket(port);
@@ -20,7 +18,6 @@ public class Server {
 
             // 创建客户端处理器
             ClientHandler clientHandler = new ClientHandler(clientSocket);
-            clients.add(clientHandler);
             clientHandler.start();
         }
     }
@@ -29,6 +26,7 @@ public class Server {
         private Socket clientSocket;
         private PrintWriter out;
         private BufferedReader in;
+        private String username;
 
         public ClientHandler(Socket clientSocket) {
             this.clientSocket = clientSocket;
@@ -40,7 +38,7 @@ public class Server {
                 in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
 
                 // 读取用户名和密码
-                String username = in.readLine();
+                username = in.readLine();
                 String password = in.readLine();
 
                 // 验证用户信息
@@ -48,8 +46,14 @@ public class Server {
 
                 // 发送验证结果给客户端
                 if (authenticated) {
+                    synchronized (clients) {
+                        clients.put(username, this);
+                        sendClientList();
+                    }
                     out.println("Authentication successful");
                     System.out.println("Authentication successful for client: " + clientSocket);
+                    // 发送当前用户列表给新登录用户
+                    sendClientListToClient(this);
                 } else {
                     out.println("Authentication failed");
                     System.out.println("Authentication failed for client: " + clientSocket);
@@ -70,79 +74,34 @@ public class Server {
                 }
             }
         }
+
         private void receiveMessage() {
             try {
                 String message;
                 while ((message = in.readLine()) != null) {
                     if (message.startsWith("Text:")) {
                         // 接收到文本消息
-                        String textMessage = message.substring(5);
-                        System.out.println("Message from client: " + textMessage);
-                        // 转发消息给其他客户端
-                        for (ClientHandler client : clients) {
-                            if (client != this) {
-                                client.sendMessage(textMessage);
-                            }
-                        }
+                        String[] parts = message.split(":", 3);
+                        String targetUsername = parts[1];
+                        String textMessage = parts[2];
+                        System.out.println("Message from " + username + " to " + targetUsername + ": " + textMessage);
+                        sendMessageToClient(targetUsername, textMessage);
                     } else if (message.startsWith("File:")) {
                         // 接收到文件消息
-                        String[] parts = message.split(":");
-                        String fileName = parts[1];
-                        long fileSize = Long.parseLong(parts[2]);
-                        //String fileName = message.substring(5);
-                        System.out.println("File:" + fileName + fileSize);
-                        receiveFile(fileName,fileSize);
-                    } else if (message.startsWith("Audio:")) {
-                        String[] parts = message.split(":");
-                        String audioname = parts[1];
-                        long fileSize = Long.parseLong(parts[2]);
-                        System.out.println("Audio from client.."+fileSize);
-                        receiveAudio(audioname,fileSize);
+                        String[] parts = message.split(":", 4);
+                        String targetUsername = parts[1];
+                        String fileName = parts[2];
+                        long fileSize = Long.parseLong(parts[3]);
+                        System.out.println("File from " + username + " to " + targetUsername + ": " + fileName + " (" + fileSize + " bytes)");
+                        receiveFile(targetUsername, fileName, fileSize);
                     }
                 }
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
-        private void receiveAudio(String audioname,long filesize) throws IOException {
-            // 创建输入流，用于接收客户端发送的音频数据
-            InputStream inputStream = clientSocket.getInputStream();
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            byte[] buffer = new byte[1460];
-            int bytesRead;
-            //int flag=0;
-            while (true) {
-                // 将音频数据写入文件
-                bytesRead = inputStream.read(buffer);
-                outputStream.write(buffer, 0, bytesRead);
-//                byte specialSymbol = '$'; // 设置特殊符号
-//                for (byte b : buffer) {
-//                    if (b == specialSymbol) {
-//                        flag = 1;
-//                    } else break;
-//                }
-//                if (flag == 1) break;
-                filesize-=bytesRead;
-                System.out.println(filesize);
-                if(filesize<=0) break;
-            }
-            for (ClientHandler client : clients) {
-                if (client != this) { // 不转发给当前客户端
-                    client.sendAudio(audioname,outputStream);
-                }
-            }
-        }
-        private void sendAudio(String audioname, ByteArrayOutputStream output) throws IOException {
-            out.println("Audio:" + audioname + ":"+output.size());
-            out.flush();
 
-            OutputStream outputStream = clientSocket.getOutputStream();
-            outputStream.write(output.toByteArray());
-            outputStream.flush();
-
-            System.out.println("over transfer");
-        }
-        private void receiveFile(String fileName, long filesize) {
+        private void receiveFile(String targetUsername, String fileName, long fileSize) {
             try {
                 // 创建文件输出流
                 File receivedFile = new File(fileName);
@@ -154,13 +113,11 @@ public class Server {
 
                 byte[] buffer = new byte[1460];
                 int bytesRead;
-                long remaining = filesize;
+                long remaining = fileSize;
 
-                while (remaining > 0) {
-                    bytesRead = Math.min(1460, (int) remaining);
+                while (remaining > 0 && (bytesRead = inputStream.read(buffer, 0, (int) Math.min(buffer.length, remaining))) != -1) {
                     bos.write(buffer, 0, bytesRead);
                     remaining -= bytesRead;
-                    System.out.println("Received " + bytesRead + " bytes, remaining: " + remaining + " bytes");
                 }
 
                 // 关闭流
@@ -170,81 +127,103 @@ public class Server {
                 // 在服务端显示文件接收信息
                 System.out.println("File received: " + fileName + " (" + receivedFile.length() + " bytes)");
 
-                // 转发文件给其他客户端
-                broadcastFile(receivedFile);
+                // 发送文件给目标客户端
+                sendFileToClient(targetUsername, fileName, receivedFile);
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
 
-        private void broadcastFile(File file) {
+        private void sendFileToClient(String targetUsername, String fileName, File file) {
             try {
-                // 读取文件内容
-                System.out.println(file.getName());
                 byte[] buffer = new byte[(int) file.length()];
                 FileInputStream fis = new FileInputStream(file);
                 BufferedInputStream bis = new BufferedInputStream(fis);
                 bis.read(buffer, 0, buffer.length);
 
-                // 转发文件给其他客户端
-                for (ClientHandler client : clients) {
-                    if (client != this) { // 不转发给当前客户端
-                        client.sendFile(file.getName(), buffer);
-                    }
+                ClientHandler targetClient = clients.get(targetUsername);
+                if (targetClient != null) {
+                    targetClient.sendFile(fileName, buffer);
                 }
 
-                // 关闭流
                 bis.close();
                 fis.close();
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
+
+        private void sendMessageToClient(String targetUsername, String message) {
+            ClientHandler targetClient = clients.get(targetUsername);
+            if (targetClient != null) {
+                targetClient.sendMessage("Text:" + message);
+            } else {
+                System.out.println("Client " + targetUsername + " not found.");
+            }
+        }
+
         public void sendFile(String fileName, byte[] fileData) {
             try {
-                System.out.println("Are You Ready??");
-                // 发送文件名
-                out.println("File:" + fileName+":"+fileData.length);
+                out.println("File:" + fileName + ":" + fileData.length);
                 out.flush();
 
-                // 发送文件内容
                 OutputStream outputStream = clientSocket.getOutputStream();
                 outputStream.write(fileData, 0, fileData.length);
                 outputStream.flush();
 
-//                byte specialSymbol = '$';
-//                byte[] endMarker = new byte[1024];
-//                Arrays.fill(endMarker, (byte) specialSymbol); // 填充1024个特殊符号
-//                outputStream.write(endMarker);
-//                outputStream.flush();
-
-                System.out.println("send File:" + fileName);
+                System.out.println("Sent file: " + fileName);
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
+
+        public void sendMessage(String message) {
+            out.println(message);
+        }
+
         public void stopConnection() throws IOException {
             in.close();
             out.close();
             clientSocket.close();
-            clients.remove(this);
+            synchronized (clients) {
+                clients.remove(username);
+                sendClientList();
+            }
         }
+
         private boolean authenticateUser(String username, String password) {
             // 在实际情况下，你需要在这里编写验证用户信息的逻辑
-            // 这里只是一个简单的示例，始终返回true，
-
-            if(Objects.equals(username, "user1") && Objects.equals(password, "123456")){
-                    return true;
-            }
-            if(Objects.equals(username, "user2") && Objects.equals(password, "123")){
+            // 这里只是一个简单的示例，始终返回true
+            if (Objects.equals(username, "user1") && Objects.equals(password, "123456")) {
                 return true;
             }
-           return false;
-            //return true;
+            if (Objects.equals(username, "user2") && Objects.equals(password, "123")) {
+                return true;
+            }
+            if (Objects.equals(username, "user3") && Objects.equals(password, "123")) {
+                return true;
+            }
+            return false;
         }
-        private void sendMessage(String message) {
-            out.println("Text:"+message);
+
+        private void sendClientList() {
+            synchronized (clients) {
+                for (ClientHandler client : clients.values()) {
+                    String clientList = "Clients:" + clients.keySet().stream()
+                            .filter(username -> !username.equals(client.username))
+                            .collect(Collectors.joining(","));
+                    client.sendMessage(clientList);
+                }
+            }
         }
+
+        private void sendClientListToClient(ClientHandler client) {
+            String clientList = "Clients:" + clients.keySet().stream()
+                    .filter(username -> !username.equals(client.username))
+                    .collect(Collectors.joining(","));
+            client.sendMessage(clientList);
+        }
+
     }
 
     public static void main(String[] args) throws IOException {
