@@ -86,9 +86,9 @@ public class ClientHandler extends Thread {
         }
     }
 
-    public void sendFile(String fileName, byte[] fileData) {
+    public void sendFile(String fileName, byte[] fileData, String sender) {
         try {
-            out.println("File:" + fileName + ":" + fileData.length);
+            out.println("File:" + sender + ":" + fileName + ":" + fileData.length);
             out.flush();
 
             OutputStream outputStream = clientSocket.getOutputStream();

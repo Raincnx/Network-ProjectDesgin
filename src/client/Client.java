@@ -137,7 +137,7 @@ public class Client {
                 String[] parts = message.split(":", 3);
                 String sender = parts[1];
                 if (chatFrames.containsKey(sender) && chatFrames.get(sender).getFrame().isVisible()) {
-                    chatFrames.get(sender).appendMessage("Client: " + parts[2] + "\n\n");
+                    chatFrames.get(sender).appendMessage(sender + ": " + parts[2] + "\n\n");
                 } else {
                     friendListModel.set(friendListModel.indexOf(sender), sender + " (new message)");
                 }
@@ -147,7 +147,7 @@ public class Client {
                 if (chatFrames.containsKey(sender) && chatFrames.get(sender).getFrame().isVisible()) {
                     chatFrames.get(sender).appendMessage("File received: " + parts[2] + "\n\n");
                 } else {
-                    friendListModel.set(friendListModel.indexOf(sender), sender + " (new message)");
+                    //friendListModel.set(friendListModel.indexOf(sender), sender + " (new message)");
                 }
             } else if (message.startsWith("Audio:")) {
                 String[] parts = message.split(":");

@@ -36,13 +36,13 @@ public class FileHandler {
         this.isBegin = isBegin;
     }
 
-    public void sendFile(File file) {
+    public void sendFile(File file, String targetUsername) {
         try {
             byte[] buffer = new byte[(int) file.length()];
             FileInputStream fis = new FileInputStream(file);
             BufferedInputStream bis = new BufferedInputStream(fis);
             bis.read(buffer, 0, buffer.length);
-            out.println("File:" + file.getName() + ":" + file.length());
+            out.println("File:" + targetUsername + ":" + file.getName() + ":" + file.length());
             out.flush();
             OutputStream os = socket.getOutputStream();
             int bytesSent = 0;
@@ -67,10 +67,12 @@ public class FileHandler {
     }
 
     public void receiveFile(String message, ChatFrame chatFrame) {
-        String[] parts = message.split(":", 3);
-        if (parts.length >= 3) {
-            String fileName = parts[1];
-            long fileSize = Long.parseLong(parts[2]);
+        String[] parts = message.split(":", 4);
+        System.out.println(parts.length + " " +  parts);
+        if (parts.length >= 4) {
+            String targetUser = parts[1];
+            String fileName = parts[2];
+            long fileSize = Long.parseLong(parts[3]);
             try {
                 File receivedFile = new File(fileName);
                 FileOutputStream fos = new FileOutputStream(receivedFile);

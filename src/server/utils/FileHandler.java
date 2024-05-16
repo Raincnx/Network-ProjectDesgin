@@ -63,7 +63,7 @@ public class FileHandler extends Handler {
 
             ClientHandler targetClient = clientHandler.getClients().get(targetUsername);
             if (targetClient != null) {
-                targetClient.sendFile(fileName, buffer);
+                targetClient.sendFile(fileName, buffer, clientHandler.getUsername());
             }
 
             bis.close();
