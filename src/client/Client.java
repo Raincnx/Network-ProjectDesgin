@@ -140,6 +140,7 @@ public class Client {
                     chatFrames.get(sender).appendMessage("Client: " + parts[2] + "\n\n");
                 } else {
                     friendListModel.set(friendListModel.indexOf(sender), sender + " (new message)");
+
                 }
             } else if (message.startsWith("File:")) {
                 String[] parts = message.split(":");
