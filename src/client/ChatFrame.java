@@ -75,7 +75,7 @@ public class ChatFrame {
                         fileHandler.setLoading(true);
                         fileHandler.setBegin(false);
                         new Thread(() -> {
-                            fileHandler.sendFile(selectedFile);
+                            fileHandler.sendFile(selectedFile, friend);
                         }).start();
                     }
                 } else {
